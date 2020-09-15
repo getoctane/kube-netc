@@ -64,7 +64,8 @@ func main() {
 	clusterInfo := cluster.NewClusterInfo(logger)
 	go clusterInfo.Run()
 
-	go collector.StartCollector(t, clusterInfo, logger)
+	col := collector.NewCollector(t, clusterInfo, logger)
+	go col.Start()
 
 	http.Handle("/metrics", promhttp.Handler())
 	logger.Infow("server started",

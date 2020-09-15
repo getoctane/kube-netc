@@ -1,6 +1,9 @@
 package collector
 
 import (
+	"strings"
+	"time"
+
 	"github.com/nirmata/kube-netc/pkg/cluster"
 	"github.com/nirmata/kube-netc/pkg/tracker"
 	"github.com/prometheus/client_golang/prometheus"
@@ -13,6 +16,7 @@ func getEmpty() *cluster.ObjectInfo {
 		Kind:      "",
 		Namespace: "",
 		Node:      "",
+		Zone:      "",
 
 		LabelName:      "",
 		LabelComponent: "",
@@ -23,62 +27,127 @@ func getEmpty() *cluster.ObjectInfo {
 	}
 }
 
-func generateLabels(connup tracker.ConnUpdate, ci *cluster.ClusterInfo, logger *zap.SugaredLogger) prometheus.Labels {
+type Collector struct {
+	tr     *tracker.Tracker
+	ci     *cluster.ClusterInfo
+	logger *zap.SugaredLogger
+}
 
-	conn := connup.Connection
+func NewCollector(tr *tracker.Tracker, ci *cluster.ClusterInfo, logger *zap.SugaredLogger) *Collector {
+	return &Collector{tr, ci, logger}
+}
 
-	srcInfo, sok := ci.Get(conn.SAddr)
+func (c *Collector) updateNodeMetrics(numConns uint16) {
+	c.logger.Debugw("updating num connections",
+		"package", "collector",
+		"num_conns", int(numConns),
+	)
+	ActiveConnections.Set(float64(numConns))
+}
 
+func (c *Collector) updateConnMetrics(connUpdates []tracker.ConnUpdate) {
+	updatesBySrcIP := make(map[string][]tracker.ConnUpdate)
+
+	for _, update := range connUpdates {
+		if update.Data.BytesSentPerSecond > 50e9 {
+			c.logger.Warnw("extreme transfer rate",
+				"package", "tracker",
+				"source", update.Connection.SAddr,
+				"direction", "sent",
+				"bps", update.Data.BytesSentPerSecond,
+			)
+		} else if update.Data.BytesRecvPerSecond > 50e9 {
+			c.logger.Warnw("extreme transfer rate",
+				"package", "tracker",
+				"source", update.Connection.SAddr,
+				"direction", "recv",
+				"bps", update.Data.BytesRecvPerSecond,
+			)
+		}
+
+		if _, exists := updatesBySrcIP[update.Connection.SAddr]; !exists {
+			updatesBySrcIP[update.Connection.SAddr] = []tracker.ConnUpdate{}
+		}
+		updatesBySrcIP[update.Connection.SAddr] = append(updatesBySrcIP[update.Connection.SAddr], update)
+	}
+
+	for _, updates := range updatesBySrcIP {
+		labels := c.generateLabels(updates[0])
+
+		aggregateData := tracker.ConnData{}
+
+		for _, update := range updates {
+			aggregateData.BytesSent += update.Data.BytesSent
+			aggregateData.BytesRecv += update.Data.BytesRecv
+			aggregateData.BytesSentPerSecond += update.Data.BytesSentPerSecond
+			aggregateData.BytesRecvPerSecond += update.Data.BytesRecvPerSecond
+		}
+
+		BytesSent.With(labels).Set(float64(aggregateData.BytesSent))
+		BytesRecv.With(labels).Set(float64(aggregateData.BytesRecv))
+		BytesSentPerSecond.With(labels).Set(float64(aggregateData.BytesSentPerSecond))
+		BytesRecvPerSecond.With(labels).Set(float64(aggregateData.BytesRecvPerSecond))
+	}
+}
+
+func trafficType(srcZone string, dstZone string, dAddr string) string {
+	switch dstZone {
+	case "":
+		if strings.HasPrefix(dAddr, "127.0.0.1") {
+			return "intra_zone"
+		} else {
+			return "internet"
+		}
+	case srcZone:
+		return "intra_zone"
+	default:
+		return "inter_zone"
+	}
+}
+
+func (c *Collector) generateLabels(update tracker.ConnUpdate) prometheus.Labels {
+	conn := update.Connection
+
+	srcInfo, sok := c.ci.Get(conn.SAddr)
 	if !sok {
 		srcInfo = getEmpty()
 	}
 
-	destInfo, dok := ci.Get(conn.DAddr)
-
+	destInfo, dok := c.ci.Get(conn.DAddr)
 	if !dok {
 		destInfo = getEmpty()
 	}
 
 	return prometheus.Labels{
-		// Kubernetes labels
-		"name":       srcInfo.LabelName,
-		"component":  srcInfo.LabelComponent,
-		"instance":   srcInfo.LabelInstance,
-		"version":    srcInfo.LabelVersion,
-		"part_of":    srcInfo.LabelPartOf,
-		"managed_by": srcInfo.LabelManagedBy,
-		// Nirmata networking labels
-		"source_address":        conn.SAddr,
-		"destination_address":   tracker.IPPort(conn.DAddr, conn.DPort),
-		"source_name":           srcInfo.Name,
-		"destination_name":      destInfo.Name,
-		"source_kind":           srcInfo.Kind,
-		"destination_kind":      destInfo.Kind,
-		"source_namespace":      srcInfo.Namespace,
-		"destination_namespace": destInfo.Namespace,
-		"source_node":           srcInfo.Node,
-		"destination_node":      destInfo.Node,
+		"source_address":   conn.SAddr,
+		"source_name":      srcInfo.Name,
+		"source_kind":      srcInfo.Kind,
+		"source_namespace": srcInfo.Namespace,
+		"source_node":      srcInfo.Node,
+		"traffic_type":     trafficType(srcInfo.Zone, destInfo.Zone, conn.DAddr),
 	}
 }
 
-func StartCollector(tr *tracker.Tracker, ci *cluster.ClusterInfo, logger *zap.SugaredLogger) {
+func (c *Collector) Start() {
+	ticker := time.NewTicker(1 * time.Minute).C
+
+	c.logger.Debugw("starting tracker control loop",
+		"package", "tracker",
+	)
+
 	for {
 		select {
-		case update := <-tr.NodeUpdateChan:
-			ActiveConnections.Set(float64(update.NumConnections))
-			logger.Debugw("updating num connections",
-				"package", "collector",
-				"num_conns", int(update.NumConnections),
-			)
 
-		case update := <-tr.ConnUpdateChan:
-
-			labels := generateLabels(update, ci, logger)
-			BytesSent.With(labels).Set(float64(update.Data.BytesSent))
-			BytesRecv.With(labels).Set(float64(update.Data.BytesRecv))
-			BytesSentPerSecond.With(labels).Set(float64(update.Data.BytesSentPerSecond))
-			BytesRecvPerSecond.With(labels).Set(float64(update.Data.BytesRecvPerSecond))
+		case <-ticker:
+			numConns, connUpdates, err := c.tr.GetConns()
+			if err != nil {
+				c.logger.Fatalw(err.Error(),
+					"package", "collector",
+				)
+				continue
+			}
+			c.updateNodeMetrics(numConns)
+			c.updateConnMetrics(connUpdates)
 		}
-
 	}
 }

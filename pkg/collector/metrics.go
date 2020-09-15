@@ -7,23 +7,31 @@ import (
 )
 
 var (
+	// labs = []string{
+	// 	"name",
+	// 	"component",
+	// 	"instance",
+	// 	"version",
+	// 	"part_of",
+	// 	"managed_by",
+	// 	"source_address",
+	// 	"destination_address",
+	// 	"source_name",
+	// 	"destination_name",
+	// 	"source_kind",
+	// 	"destination_kind",
+	// 	"source_namespace",
+	// 	"destination_namespace",
+	// 	"source_node",
+	// 	"destination_node",
+	// }
 	labs = []string{
-		"name",
-		"component",
-		"instance",
-		"version",
-		"part_of",
-		"managed_by",
 		"source_address",
-		"destination_address",
 		"source_name",
-		"destination_name",
 		"source_kind",
-		"destination_kind",
 		"source_namespace",
-		"destination_namespace",
 		"source_node",
-		"destination_node",
+		"traffic_type",
 	}
 )
 

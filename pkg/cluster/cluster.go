@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -26,6 +27,9 @@ type ObjectInfo struct {
 	Namespace string
 	Node      string
 
+	// Corresponds to topology.kubernetes.io/zone label
+	Zone string
+
 	// Info from kubernetes labels
 	LabelName      string
 	LabelComponent string
@@ -36,9 +40,11 @@ type ObjectInfo struct {
 }
 
 type ClusterInfo struct {
-	mux         sync.Mutex
 	Logger      *zap.SugaredLogger
+	mux         sync.Mutex
 	objectIPMap map[string]*ObjectInfo
+	nodeZoneMux sync.Mutex
+	nodeZoneMap map[string]string
 }
 
 func (ci *ClusterInfo) Set(ip string, o *ObjectInfo) {
@@ -54,12 +60,38 @@ func (ci *ClusterInfo) Get(ip string) (*ObjectInfo, bool) {
 	return val, ok
 }
 
+func (ci *ClusterInfo) Unset(ip string) {
+	ci.mux.Lock()
+	delete(ci.objectIPMap, ip)
+	ci.mux.Unlock()
+}
+
+func (ci *ClusterInfo) SetNodeZone(name string, zone string) {
+	ci.nodeZoneMux.Lock()
+	ci.nodeZoneMap[name] = zone
+	ci.nodeZoneMux.Unlock()
+}
+
+func (ci *ClusterInfo) GetNodeZone(name string) (string, bool) {
+	ci.nodeZoneMux.Lock()
+	defer ci.nodeZoneMux.Unlock()
+	val, ok := ci.nodeZoneMap[name]
+	return val, ok
+}
+
+func (ci *ClusterInfo) UnsetNodeZone(name string) {
+	ci.nodeZoneMux.Lock()
+	delete(ci.nodeZoneMap, name)
+	ci.nodeZoneMux.Unlock()
+}
+
 func NewClusterInfo(logger *zap.SugaredLogger) *ClusterInfo {
 	logger.Debugw("starting cluster mapping",
 		"package", "cluster",
 	)
 	return &ClusterInfo{
 		objectIPMap: make(map[string]*ObjectInfo),
+		nodeZoneMap: make(map[string]string),
 		Logger:      logger,
 	}
 }
@@ -104,7 +136,15 @@ func (c *ClusterInfo) Run() {
 	c.Logger.Debugw("informers starting",
 		"package", "cluster",
 	)
+
+	// Start node informer first and wait for sync so we have zone info available
+	// in Pod sync.
+	go nodeInformer.Run(stopper)
+
+	if !cache.WaitForCacheSync(stopper, nodeInformer.HasSynced) {
+		panic(fmt.Errorf("Timed out waiting for caches to sync"))
+	}
+
 	go podInformer.Run(stopper)
-	go serviceInformer.Run(stopper)
-	nodeInformer.Run(stopper)
+	serviceInformer.Run(stopper)
 }

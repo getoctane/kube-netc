@@ -1,7 +1,7 @@
 package cluster
 
 import (
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 )
 
 func (c *ClusterInfo) handleNewObject(obj interface{}) {
@@ -10,6 +10,7 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 	var kind string
 	var namespace string
 	var node string
+	var zone string
 
 	var ip string
 	var labels map[string]string
@@ -25,6 +26,9 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 		namespace = o.GetNamespace()
 
 		labels = o.GetLabels()
+
+		zone, _ = c.GetNodeZone(node)
+
 	case *v1.Service:
 		ip = o.Spec.ClusterIP
 
@@ -43,6 +47,9 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 		namespace = o.GetNamespace()
 
 		labels = o.GetLabels()
+
+		zone = labels["topology.kubernetes.io/zone"]
+		c.SetNodeZone(name, zone)
 	}
 
 	info := &ObjectInfo{
@@ -50,6 +57,7 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 		Kind:      kind,
 		Namespace: namespace,
 		Node:      node,
+		Zone:      zone,
 	}
 
 	info.LabelName = labels["name"]
@@ -76,6 +84,7 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 	var kind string
 	var namespace string
 	var node string
+	var zone string
 
 	var ip string
 	var labels map[string]string
@@ -91,6 +100,9 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 		namespace = o.GetNamespace()
 
 		labels = o.GetLabels()
+
+		zone, _ = c.GetNodeZone(node)
+
 	case *v1.Service:
 		ip = o.Spec.ClusterIP
 
@@ -109,6 +121,9 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 		namespace = o.GetNamespace()
 
 		labels = o.GetLabels()
+
+		zone = labels["topology.kubernetes.io/zone"]
+		c.SetNodeZone(name, zone)
 	}
 
 	info := &ObjectInfo{
@@ -116,6 +131,7 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 		Kind:      kind,
 		Namespace: namespace,
 		Node:      node,
+		Zone:      zone,
 	}
 
 	info.LabelName = labels["name"]
@@ -149,6 +165,9 @@ func (c *ClusterInfo) handleDeleteObject(obj interface{}) {
 		internalIP, err := getNodeIP(o)
 		c.check(err)
 		ip = internalIP
+
+		name := o.GetName()
+		c.UnsetNodeZone(name)
 	}
 
 	c.Logger.Debugw("deleting entry from object map",
@@ -157,5 +176,5 @@ func (c *ClusterInfo) handleDeleteObject(obj interface{}) {
 	)
 
 	// Updating the map
-	c.Set(ip, nil)
+	c.Unset(ip)
 }

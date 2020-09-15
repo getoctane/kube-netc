@@ -24,18 +24,14 @@ func (t *Tracker) check(err error) {
 }
 
 type Tracker struct {
-	Tick time.Duration
 	// time idle before considering connection inactive
 	Timeout        time.Duration
 	Config         *ebpf.Config
 	numConnections uint16
 
-	ConnUpdateChan chan ConnUpdate
-	NodeUpdateChan chan NodeUpdate
-
 	Logger *zap.SugaredLogger
 
-	stopChan chan struct{}
+	tracer *ebpf.Tracer
 }
 
 type ConnData struct {
@@ -67,7 +63,6 @@ type ConnectionID struct {
 
 var (
 	DefaultTracker = Tracker{
-		Tick: 1 * time.Second,
 		Config: &ebpf.Config{
 			CollectTCPConns:              true,
 			CollectUDPConns:              true,
@@ -87,9 +82,6 @@ var (
 			ClosedChannelSize:            500,
 		},
 		numConnections: 0,
-		ConnUpdateChan: make(chan ConnUpdate, MaxConnBuffer),
-		NodeUpdateChan: make(chan NodeUpdate, 16),
-		stopChan:       make(chan struct{}, 1),
 	}
 )
 
@@ -105,8 +97,12 @@ func (t *Tracker) StartTracker() {
 	t.Logger.Debugw("finished checking for eBPF suport",
 		"package", "tracker",
 	)
-	err = t.run()
-	t.check(err)
+
+	tracer, err := ebpf.NewTracer(t.Config)
+	if err != nil {
+		panic(err)
+	}
+	t.tracer = tracer
 }
 
 func checkSupport() error {
@@ -121,117 +117,70 @@ func checkSupport() error {
 	return nil
 }
 
-func (t *Tracker) run() error {
-	tracer, err := ebpf.NewTracer(t.Config)
+func (t *Tracker) GetConns() (uint16, []ConnUpdate, error) {
+	cs, err := t.tracer.GetActiveConnections(fmt.Sprintf("%d", os.Getpid()))
 	if err != nil {
-		return err
+		return 0, nil, err
 	}
 
-	ticker := time.NewTicker(t.Tick).C
+	conns := cs.Conns
 
-	t.Logger.Debugw("starting tracker control loop",
-		"package", "tracker",
-	)
+	connectionMap := make(map[ConnectionID][]network.ConnectionStats)
 
-ControlLoop:
-	for {
-
-		select {
-
-		case <-ticker:
-
-			cs, err := tracer.GetActiveConnections(fmt.Sprintf("%d", os.Getpid()))
-
-			if err != nil {
-				return err
-			}
-
-			conns := cs.Conns
-
-			t.NodeUpdateChan <- NodeUpdate{
-				NumConnections: uint16(len(conns)),
-			}
-
-			t.Logger.Debugw("num connections calculated",
-				"package", "tracker",
-				"connections", uint16(len(conns)),
-			)
-
-			connectionMap := make(map[ConnectionID][]network.ConnectionStats)
-
-			for _, c := range conns {
-				id := ConnectionID{
-					SAddr: c.Source.String(),
-					DAddr: c.Dest.String(),
-					DPort: c.DPort,
-				}
-
-				if _, exists := connectionMap[id]; !exists {
-					connectionMap[id] = []network.ConnectionStats{}
-				}
-				connectionMap[id] = append(connectionMap[id], c)
-			}
-
-			for id, conns := range connectionMap {
-				update := ConnUpdate{
-					Connection: id,
-					Data: ConnData{
-						Active:      true,
-						LastUpdated: time.Now(),
-					},
-				}
-
-				for _, c := range conns {
-					// These values get used mored than once in calculations
-					// and we want them to be uniform in this scope
-					bytesSent := c.MonotonicSentBytes
-					bytesRecv := c.MonotonicRecvBytes
-
-					// Using runtime.nanotime(), see util.go
-					now := Now()
-					// In float64 seconds
-					timeDiff := float64(now-c.LastUpdateEpoch) / 1000000000.0
-
-					if timeDiff <= 0 {
-						t.check(errors.New("no difference between LastUpdateEpoch and time.Now(), will create divide by zero error or negative"))
-					}
-
-					// Per Second Calculations
-					bytesSentPerSecond := uint64(float64(bytesSent-c.LastSentBytes) / float64(timeDiff))
-					bytesRecvPerSecond := uint64(float64(bytesRecv-c.LastRecvBytes) / float64(timeDiff))
-					if bytesSentPerSecond > 50e9 {
-						t.Logger.Warnw("extreme transfer rate",
-							"package", "tracker",
-							"source", IPPort(c.Source.String(), c.SPort),
-							"direction", "sent",
-							"bps", bytesSentPerSecond,
-						)
-					} else if bytesRecvPerSecond > 50e9 {
-						t.Logger.Warnw("extreme transfer rate",
-							"package", "tracker",
-							"source", IPPort(c.Source.String(), c.SPort),
-							"direction", "recv",
-							"bps", bytesRecvPerSecond,
-						)
-					}
-
-					update.Data.BytesSent += c.MonotonicSentBytes
-					update.Data.BytesRecv += c.MonotonicRecvBytes
-					update.Data.BytesSentPerSecond += bytesSentPerSecond
-					update.Data.BytesRecvPerSecond += bytesRecvPerSecond
-				}
-
-				t.ConnUpdateChan <- update
-			}
-
-		case <-t.stopChan:
-			break ControlLoop
+	for _, c := range conns {
+		id := ConnectionID{
+			SAddr: c.Source.String(),
+			DAddr: c.Dest.String(),
+			DPort: c.DPort,
 		}
+
+		if _, exists := connectionMap[id]; !exists {
+			connectionMap[id] = []network.ConnectionStats{}
+		}
+		connectionMap[id] = append(connectionMap[id], c)
 	}
 
-	return nil
-}
+	updates := make([]ConnUpdate, len(connectionMap))
 
-func (t *Tracker) Stop() {
-	t.stopChan <- struct{}{}
+	i := 0
+	for id, conns := range connectionMap {
+		update := ConnUpdate{
+			Connection: id,
+			Data: ConnData{
+				Active:      true,
+				LastUpdated: time.Now(),
+			},
+		}
+
+		for _, c := range conns {
+			// These values get used mored than once in calculations
+			// and we want them to be uniform in this scope
+			bytesSent := c.MonotonicSentBytes
+			bytesRecv := c.MonotonicRecvBytes
+
+			// Using runtime.nanotime(), see util.go
+			now := Now()
+			// In float64 seconds
+			timeDiff := float64(now-c.LastUpdateEpoch) / 1000000000.0
+
+			if timeDiff <= 0 {
+				t.check(errors.New("no difference between LastUpdateEpoch and time.Now(), will create divide by zero error or negative"))
+			}
+
+			// Per Second Calculations
+			bytesSentPerSecond := uint64(float64(bytesSent-c.LastSentBytes) / float64(timeDiff))
+			bytesRecvPerSecond := uint64(float64(bytesRecv-c.LastRecvBytes) / float64(timeDiff))
+
+			update.Data.BytesSent += c.MonotonicSentBytes
+			update.Data.BytesRecv += c.MonotonicRecvBytes
+			update.Data.BytesSentPerSecond += bytesSentPerSecond
+			update.Data.BytesRecvPerSecond += bytesRecvPerSecond
+		}
+
+		updates[i] = update
+
+		i++
+	}
+
+	return uint16(len(conns)), updates, nil
 }
