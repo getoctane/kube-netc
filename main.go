@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/nirmata/kube-netc/pkg/cluster"
-	"github.com/nirmata/kube-netc/pkg/collector"
-	"github.com/nirmata/kube-netc/pkg/tracker"
+	"github.com/getoctane/kube-netc/pkg/cluster"
+	"github.com/getoctane/kube-netc/pkg/collector"
+	"github.com/getoctane/kube-netc/pkg/tracker"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"

@@ -1,11 +1,12 @@
 package collector
 
 import (
-	"strings"
+	"fmt"
+	"net"
 	"time"
 
-	"github.com/nirmata/kube-netc/pkg/cluster"
-	"github.com/nirmata/kube-netc/pkg/tracker"
+	"github.com/getoctane/kube-netc/pkg/cluster"
+	"github.com/getoctane/kube-netc/pkg/tracker"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
@@ -93,11 +94,15 @@ func (c *Collector) updateConnMetrics(connUpdates []tracker.ConnUpdate) {
 func trafficType(srcZone string, dstZone string, dAddr string) string {
 	switch dstZone {
 	case "":
-		if strings.HasPrefix(dAddr, "127.0.0.1") {
+		ip, _, err := net.ParseCIDR(dAddr)
+		if err != nil {
+			fmt.Println(fmt.Errorf("CIDR parse error on %q: %v", dAddr, err))
 			return "intra_zone"
-		} else {
-			return "internet"
 		}
+		if isPrivateIP(ip) {
+			return "intra_zone"
+		}
+		return "internet"
 	case srcZone:
 		return "intra_zone"
 	default:

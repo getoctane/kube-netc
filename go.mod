@@ -1,4 +1,4 @@
-module github.com/nirmata/kube-netc
+module github.com/getoctane/kube-netc
 
 go 1.13
 
@@ -75,3 +75,6 @@ replace (
 	k8s.io/metrics => k8s.io/metrics v0.18.3
 	k8s.io/sample-apiserver => k8s.io/sample-apiserver v0.18.3
 )
+
+// https://github.com/DataDog/datadog-agent/pull/6407/files
+replace bitbucket.org/ww/goautoneg => github.com/munnerz/goautoneg v0.0.0-20190414153302-2ae31c8b6b30

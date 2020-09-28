@@ -14,7 +14,7 @@ script:
   - $GOPATH/bin/golangci-lint run main.go
 
 after_script:
-  - curl -d "repo=https://github.com/nirmata/kube-netc" https://goreportcard.com/checks
+  - curl -d "repo=https://github.com/getoctane/kube-netc" https://goreportcard.com/checks
 
 notifications:
   email: false

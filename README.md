@@ -1,6 +1,6 @@
 # kube-netc: A Kubernetes eBPF network monitor
 
-[![Build Status](https://travis-ci.org/nirmata/kube-netc.svg?branch=master)](https://travis-ci.org/nirmata/kube-netc) [![Go Report Card](https://goreportcard.com/badge/github.com/nirmata/kube-netc)](https://goreportcard.com/report/github.com/nirmata/kube-netc)
+[![Build Status](https://travis-ci.org/nirmata/kube-netc.svg?branch=master)](https://travis-ci.org/nirmata/kube-netc) [![Go Report Card](https://goreportcard.com/badge/github.com/getoctane/kube-netc)](https://goreportcard.com/report/github.com/getoctane/kube-netc)
 
 
 kube-netc (pronounced <i>kube-net-see</i>) is a Kubernetes network monitor built using eBPF
@@ -14,7 +14,7 @@ To test the current capabilities of **kube-netc**, this guide will walk you thro
 First, install the daemon set using the install.yaml:
 
 ``` 
-kubectl apply -f https://github.com/nirmata/kube-netc/raw/master/config/install.yaml
+kubectl apply -f https://github.com/getoctane/kube-netc/raw/master/config/install.yaml
 ```
 
 ### View results
