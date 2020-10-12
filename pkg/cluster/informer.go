@@ -4,6 +4,14 @@ import (
 	v1 "k8s.io/api/core/v1"
 )
 
+func getZoneLabelValue(labels map[string]string) string {
+	zone := labels["topology.kubernetes.io/zone"]
+	if zone == "" {
+		zone = labels["failure-domain.beta.kubernetes.io/zone"]
+	}
+	return zone
+}
+
 func (c *ClusterInfo) handleNewObject(obj interface{}) {
 
 	var name string
@@ -11,6 +19,8 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 	var namespace string
 	var node string
 	var zone string
+
+	var loadBalancerIP string
 
 	var ip string
 	var labels map[string]string
@@ -36,6 +46,10 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 		kind = getObjectType(o)
 		namespace = o.GetNamespace()
 
+		if o.Spec.Type == "LoadBalancer" && len(o.Status.LoadBalancer.Ingress) > 0 {
+			loadBalancerIP = o.Status.LoadBalancer.Ingress[0].IP
+		}
+
 		labels = o.GetLabels()
 	case *v1.Node:
 		internalIP, err := getNodeIP(o)
@@ -48,16 +62,17 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 
 		labels = o.GetLabels()
 
-		zone = labels["topology.kubernetes.io/zone"]
+		zone = getZoneLabelValue(labels)
 		c.SetNodeZone(name, zone)
 	}
 
 	info := &ObjectInfo{
-		Name:      name,
-		Kind:      kind,
-		Namespace: namespace,
-		Node:      node,
-		Zone:      zone,
+		Name:           name,
+		Kind:           kind,
+		Namespace:      namespace,
+		Node:           node,
+		Zone:           zone,
+		LoadBalancerIP: loadBalancerIP,
 	}
 
 	info.LabelName = labels["name"]
@@ -86,6 +101,8 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 	var node string
 	var zone string
 
+	var loadBalancerIP string
+
 	var ip string
 	var labels map[string]string
 
@@ -110,6 +127,10 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 		kind = getObjectType(o)
 		namespace = o.GetNamespace()
 
+		if o.Spec.Type == "LoadBalancer" && len(o.Status.LoadBalancer.Ingress) > 0 {
+			loadBalancerIP = o.Status.LoadBalancer.Ingress[0].IP
+		}
+
 		labels = o.GetLabels()
 	case *v1.Node:
 		internalIP, err := getNodeIP(o)
@@ -122,16 +143,17 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 
 		labels = o.GetLabels()
 
-		zone = labels["topology.kubernetes.io/zone"]
+		zone = getZoneLabelValue(labels)
 		c.SetNodeZone(name, zone)
 	}
 
 	info := &ObjectInfo{
-		Name:      name,
-		Kind:      kind,
-		Namespace: namespace,
-		Node:      node,
-		Zone:      zone,
+		Name:           name,
+		Kind:           kind,
+		Namespace:      namespace,
+		Node:           node,
+		Zone:           zone,
+		LoadBalancerIP: loadBalancerIP,
 	}
 
 	info.LabelName = labels["name"]

@@ -13,11 +13,12 @@ import (
 
 func getEmpty() *cluster.ObjectInfo {
 	return &cluster.ObjectInfo{
-		Name:      "",
-		Kind:      "",
-		Namespace: "",
-		Node:      "",
-		Zone:      "",
+		Name:           "",
+		Kind:           "",
+		Namespace:      "",
+		Node:           "",
+		Zone:           "",
+		LoadBalancerIP: "",
 
 		LabelName:      "",
 		LabelComponent: "",
@@ -91,10 +92,25 @@ func (c *Collector) updateConnMetrics(connUpdates []tracker.ConnUpdate) {
 	}
 }
 
-func trafficType(srcZone string, dstZone string, dAddr string) string {
+func trafficType(srcZone string, dstZone string, dAddr string, dstLoadBalancerIP string) string {
+
+	// If it's going to an external-facing LoadBalancer
+	if dstLoadBalancerIP != "" {
+		lbIP, _, err := net.ParseCIDR(dstLoadBalancerIP + "/32")
+		if err == nil {
+			if !isPrivateIP(lbIP) {
+				return "internet"
+			}
+			// Else continue below
+		} else {
+			fmt.Println(fmt.Errorf("CIDR parse error on LB IP %q: %v", dstLoadBalancerIP, err))
+			// Continue below
+		}
+	}
+
 	switch dstZone {
 	case "":
-		ip, _, err := net.ParseCIDR(dAddr)
+		ip, _, err := net.ParseCIDR(dAddr + "/32")
 		if err != nil {
 			fmt.Println(fmt.Errorf("CIDR parse error on %q: %v", dAddr, err))
 			return "intra_zone"
@@ -129,7 +145,7 @@ func (c *Collector) generateLabels(update tracker.ConnUpdate) prometheus.Labels 
 		"source_kind":      srcInfo.Kind,
 		"source_namespace": srcInfo.Namespace,
 		"source_node":      srcInfo.Node,
-		"traffic_type":     trafficType(srcInfo.Zone, destInfo.Zone, conn.DAddr),
+		"traffic_type":     trafficType(srcInfo.Zone, destInfo.Zone, conn.DAddr, destInfo.LoadBalancerIP),
 	}
 }
 
