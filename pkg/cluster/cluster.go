@@ -30,8 +30,8 @@ type ObjectInfo struct {
 	// Corresponds to topology.kubernetes.io/zone label
 	Zone string
 
-	// status.loadBalancer.ingress[0].ip
-	LoadBalancerIP string
+	// // status.loadBalancer.ingress[0].ip
+	// LoadBalancerIP string
 
 	// Info from kubernetes labels
 	LabelName      string

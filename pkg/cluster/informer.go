@@ -20,7 +20,7 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 	var node string
 	var zone string
 
-	var loadBalancerIP string
+	// var loadBalancerIP string
 
 	var ip string
 	var labels map[string]string
@@ -46,9 +46,9 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 		kind = getObjectType(o)
 		namespace = o.GetNamespace()
 
-		if o.Spec.Type == "LoadBalancer" && len(o.Status.LoadBalancer.Ingress) > 0 {
-			loadBalancerIP = o.Status.LoadBalancer.Ingress[0].IP
-		}
+		// if o.Spec.Type == "LoadBalancer" && len(o.Status.LoadBalancer.Ingress) > 0 {
+		// 	loadBalancerIP = o.Status.LoadBalancer.Ingress[0].IP
+		// }
 
 		labels = o.GetLabels()
 	case *v1.Node:
@@ -67,12 +67,12 @@ func (c *ClusterInfo) handleNewObject(obj interface{}) {
 	}
 
 	info := &ObjectInfo{
-		Name:           name,
-		Kind:           kind,
-		Namespace:      namespace,
-		Node:           node,
-		Zone:           zone,
-		LoadBalancerIP: loadBalancerIP,
+		Name:      name,
+		Kind:      kind,
+		Namespace: namespace,
+		Node:      node,
+		Zone:      zone,
+		// LoadBalancerIP: loadBalancerIP,
 	}
 
 	info.LabelName = labels["name"]
@@ -101,7 +101,7 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 	var node string
 	var zone string
 
-	var loadBalancerIP string
+	// var loadBalancerIP string
 
 	var ip string
 	var labels map[string]string
@@ -127,9 +127,9 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 		kind = getObjectType(o)
 		namespace = o.GetNamespace()
 
-		if o.Spec.Type == "LoadBalancer" && len(o.Status.LoadBalancer.Ingress) > 0 {
-			loadBalancerIP = o.Status.LoadBalancer.Ingress[0].IP
-		}
+		// if o.Spec.Type == "LoadBalancer" && len(o.Status.LoadBalancer.Ingress) > 0 {
+		// 	loadBalancerIP = o.Status.LoadBalancer.Ingress[0].IP
+		// }
 
 		labels = o.GetLabels()
 	case *v1.Node:
@@ -148,12 +148,12 @@ func (c *ClusterInfo) handleUpdateObject(oldObj interface{}, obj interface{}) {
 	}
 
 	info := &ObjectInfo{
-		Name:           name,
-		Kind:           kind,
-		Namespace:      namespace,
-		Node:           node,
-		Zone:           zone,
-		LoadBalancerIP: loadBalancerIP,
+		Name:      name,
+		Kind:      kind,
+		Namespace: namespace,
+		Node:      node,
+		Zone:      zone,
+		// LoadBalancerIP: loadBalancerIP,
 	}
 
 	info.LabelName = labels["name"]

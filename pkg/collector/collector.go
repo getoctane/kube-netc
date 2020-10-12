@@ -3,6 +3,7 @@ package collector
 import (
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/getoctane/kube-netc/pkg/cluster"
@@ -13,12 +14,12 @@ import (
 
 func getEmpty() *cluster.ObjectInfo {
 	return &cluster.ObjectInfo{
-		Name:           "",
-		Kind:           "",
-		Namespace:      "",
-		Node:           "",
-		Zone:           "",
-		LoadBalancerIP: "",
+		Name:      "",
+		Kind:      "",
+		Namespace: "",
+		Node:      "",
+		Zone:      "",
+		// LoadBalancerIP: "",
 
 		LabelName:      "",
 		LabelComponent: "",
@@ -92,24 +93,22 @@ func (c *Collector) updateConnMetrics(connUpdates []tracker.ConnUpdate) {
 	}
 }
 
-func trafficType(srcZone string, dstZone string, dAddr string, dstLoadBalancerIP string) string {
-
-	// If it's going to an external-facing LoadBalancer
-	if dstLoadBalancerIP != "" {
-		lbIP, _, err := net.ParseCIDR(dstLoadBalancerIP + "/32")
-		if err == nil {
-			if !isPrivateIP(lbIP) {
-				return "internet"
-			}
-			// Else continue below
-		} else {
-			fmt.Println(fmt.Errorf("CIDR parse error on LB IP %q: %v", dstLoadBalancerIP, err))
-			// Continue below
-		}
+func trafficType(srcInfo *cluster.ObjectInfo, dstInfo *cluster.ObjectInfo, dAddr string) string {
+	// Traffic TO kube-proxy from pod: mark as internet (so it is not marked as
+	// intra_zone)
+	if srcInfo.Kind == "pod" && strings.Contains(dstInfo.Name, "kube-proxy") {
+		return "internet"
 	}
 
-	switch dstZone {
+	switch dstInfo.Zone {
 	case "":
+		// Traffic FROM kube-proxy out of cluster: mark as intra_zone (so it is not
+		// marked as internet)
+		if srcInfo.Kind == "pod" && strings.Contains(srcInfo.Name, "kube-proxy") {
+			return "intra_zone"
+		}
+
+		// Else we should take a look at the IP
 		ip, _, err := net.ParseCIDR(dAddr + "/32")
 		if err != nil {
 			fmt.Println(fmt.Errorf("CIDR parse error on %q: %v", dAddr, err))
@@ -119,9 +118,12 @@ func trafficType(srcZone string, dstZone string, dAddr string, dstLoadBalancerIP
 			return "intra_zone"
 		}
 		return "internet"
-	case srcZone:
+
+	case srcInfo.Zone:
 		return "intra_zone"
+
 	default:
+		// If a zone is provided but doesn't match, it must be inter_zone
 		return "inter_zone"
 	}
 }
@@ -145,7 +147,7 @@ func (c *Collector) generateLabels(update tracker.ConnUpdate) prometheus.Labels 
 		"source_kind":      srcInfo.Kind,
 		"source_namespace": srcInfo.Namespace,
 		"source_node":      srcInfo.Node,
-		"traffic_type":     trafficType(srcInfo.Zone, destInfo.Zone, conn.DAddr, destInfo.LoadBalancerIP),
+		"traffic_type":     trafficType(srcInfo, destInfo, conn.DAddr),
 	}
 }
 
