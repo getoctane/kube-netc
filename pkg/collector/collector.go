@@ -100,32 +100,36 @@ func trafficType(srcInfo *cluster.ObjectInfo, dstInfo *cluster.ObjectInfo, dAddr
 		return "internet"
 	}
 
-	switch dstInfo.Zone {
-	case "":
-		// Traffic FROM kube-proxy out of cluster: mark as intra_zone (so it is not
-		// marked as internet)
-		if srcInfo.Kind == "pod" && strings.Contains(srcInfo.Name, "kube-proxy") {
-			return "intra_zone"
-		}
-
-		// Else we should take a look at the IP
-		ip, _, err := net.ParseCIDR(dAddr + "/32")
-		if err != nil {
-			fmt.Println(fmt.Errorf("CIDR parse error on %q: %v", dAddr, err))
-			return "intra_zone"
-		}
-		if isPrivateIP(ip) {
-			return "intra_zone"
-		}
-		return "internet"
-
-	case srcInfo.Zone:
-		return "intra_zone"
-
-	default:
-		// If a zone is provided but doesn't match, it must be inter_zone
+	// Inter-zone if zones do not much (but they are provided)
+	if srcInfo.Zone != "" && dstInfo.Zone != "" && srcInfo.Zone != dstInfo.Zone {
 		return "inter_zone"
 	}
+
+	// Else we should take a look at the IP
+	dstIP, _, err := net.ParseCIDR(dAddr + "/32")
+	if err != nil {
+		fmt.Println(fmt.Errorf("CIDR parse error on %q: %v", dAddr, err))
+		return "" // Just return unknown
+	}
+
+	if isLoopbackIP(dstIP) {
+		return "loopback"
+	}
+
+	if isPrivateIP(dstIP) {
+		return "intra_zone"
+	}
+
+	// NOTE ----------------------------------------------------------------------
+	// Everything below occurs after the IP has been identified as a public address.
+
+	// Traffic FROM kube-proxy out of cluster: mark as intra_zone (so it is not
+	// marked as internet)
+	if dstInfo.Kind == "" && strings.Contains(srcInfo.Name, "kube-proxy") {
+		return "intra_zone"
+	}
+
+	return "internet"
 }
 
 func (c *Collector) generateLabels(update tracker.ConnUpdate) prometheus.Labels {
